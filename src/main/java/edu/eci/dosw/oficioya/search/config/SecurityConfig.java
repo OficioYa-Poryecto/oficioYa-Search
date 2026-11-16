@@ -1,8 +1,14 @@
 package edu.eci.dosw.oficioya.search.config;
 
 import java.util.Base64;
+import java.util.Set;
 
 import javax.crypto.spec.SecretKeySpec;
+
+import com.nimbusds.jose.JWSAlgorithm;
+import com.nimbusds.jose.jwk.source.ImmutableSecret;
+import com.nimbusds.jose.proc.JWSVerificationKeySelector;
+import com.nimbusds.jose.proc.SecurityContext;
 
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
@@ -19,11 +25,14 @@ import org.springframework.security.web.SecurityFilterChain;
 /**
  * Seguridad del microservicio: toda petición debe traer un JWT válido emitido por Identity
  * y reenviado por el Orchestrator. Mismo formato que Identity (Squad 1) y los demás dominios:
- * HS256 con el secreto JWT_SECRET en Base64, el sub es el UUID del usuario y los roles vienen en el claim
+ * HS256 o HS384 con el secreto JWT_SECRET en Base64, el sub es el UUID del usuario y los roles vienen en el claim
  * "roles" sin prefijo (CONTRATANTE, TRABAJADOR, ADMIN; SISTEMA para los avisos entre dominios).
  */
 @Configuration
 public class SecurityConfig {
+
+    /** Identity firma con HS384 cuando el secreto mide 48 bytes o más; se acepta también HS256. */
+    static final Set<JWSAlgorithm> ALGORITMOS_ACEPTADOS = Set.of(JWSAlgorithm.HS256, JWSAlgorithm.HS384);
 
     @Bean
     public SecurityFilterChain securityFilterChain(HttpSecurity http,
@@ -44,7 +53,10 @@ public class SecurityConfig {
     public JwtDecoder jwtDecoder(@Value("${oficioya.security.jwt-secret}") String secret) {
         // Igual que Identity: el secreto se usa decodificado de Base64.
         SecretKeySpec key = new SecretKeySpec(Base64.getDecoder().decode(secret.trim()), "HmacSHA256");
-        return NimbusJwtDecoder.withSecretKey(key).build();
+        return NimbusJwtDecoder.withSecretKey(key)
+                .jwtProcessorCustomizer(procesador -> procesador.setJWSKeySelector(
+                        new JWSVerificationKeySelector<>(ALGORITMOS_ACEPTADOS, new ImmutableSecret<SecurityContext>(key))))
+                .build();
     }
 
     @Bean
