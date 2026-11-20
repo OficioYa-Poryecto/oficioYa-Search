@@ -16,6 +16,8 @@ import java.time.DayOfWeek;
 import java.time.LocalTime;
 import java.util.List;
 import java.util.Map;
+import java.util.stream.Collectors;
+import java.util.stream.IntStream;
 
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -45,7 +47,7 @@ class OrquestadorRestClientTest {
         RestClient.Builder builder = RestClient.builder();
         servidor = MockRestServiceServer.bindTo(builder).build();
         cliente = new OrquestadorRestClient(builder, BASE, "/api/v1/workers", "/api/v1/trades",
-                "/api/v1/reputation/reputaciones", "/api/ia/interpretaciones");
+                "/api/v1/reputation/reputaciones", "/api/ia/interpretaciones", "/api/v1/users");
     }
 
     @AfterEach
@@ -73,11 +75,18 @@ class OrquestadorRestClientTest {
                           "photos": []}]
                         """.formatted(id(101), id(201), id(501), id(1), id(502), id(6)) + """
                         """, MediaType.APPLICATION_JSON));
+        servidor.expect(requestTo(BASE + "/api/v1/users?ids=" + id(201)))
+                .andExpect(method(HttpMethod.GET))
+                .andExpect(header("Authorization", "Bearer token-del-usuario"))
+                .andRespond(withSuccess("""
+                        [{"id": "%s", "name": "Carlos Martínez", "email": "c***@correo.com", "roles": ["TRABAJADOR"]}]
+                        """.formatted(id(201)), MediaType.APPLICATION_JSON));
 
         List<TrabajadorDTO> trabajadores = cliente.buscarTrabajadoresActivos(id(1));
 
         assertThat(trabajadores).hasSize(1);
         assertThat(trabajadores.get(0).id()).isEqualTo(id(101));
+        assertThat(trabajadores.get(0).nombreCompleto()).isEqualTo("Carlos Martínez");
         assertThat(trabajadores.get(0).oficioPrincipalId()).isEqualTo(id(1));
         assertThat(trabajadores.get(0).oficioPrincipal()).isEqualTo("Plomería");
         assertThat(trabajadores.get(0).oficiosSecundariosIds()).containsExactly(id(6));
@@ -87,6 +96,52 @@ class OrquestadorRestClientTest {
         assertThat(trabajadores.get(0).disponibilidad()).hasSize(1);
         assertThat(trabajadores.get(0).disponibilidad().get(0).diaSemana()).isEqualTo(DayOfWeek.MONDAY);
         assertThat(trabajadores.get(0).disponibilidad().get(0).horaInicio()).isEqualTo(LocalTime.of(8, 0));
+        servidor.verify();
+    }
+
+    @Test
+    void siUsersNoRespondeLosTrabajadoresSalenSinNombre() {
+        servidor.expect(requestTo(BASE + "/api/v1/workers?tradeId=" + id(1)))
+                .andRespond(withSuccess("""
+                        [{"id": "%s", "userId": "%s", "status": "ACTIVE", "availableNow": false}]
+                        """.formatted(id(101), id(201)), MediaType.APPLICATION_JSON));
+        servidor.expect(requestTo(BASE + "/api/v1/users?ids=" + id(201))).andRespond(withServerError());
+
+        List<TrabajadorDTO> trabajadores = cliente.buscarTrabajadoresActivos(id(1));
+
+        assertThat(trabajadores).singleElement().satisfies(trabajador -> {
+            assertThat(trabajador.id()).isEqualTo(id(101));
+            assertThat(trabajador.nombreCompleto()).isNull();
+        });
+        servidor.verify();
+    }
+
+    @Test
+    void sinTrabajadoresNoConsultaUsers() {
+        servidor.expect(requestTo(BASE + "/api/v1/workers?tradeId=" + id(1)))
+                .andRespond(withSuccess("[]", MediaType.APPLICATION_JSON));
+
+        assertThat(cliente.buscarTrabajadoresActivos(id(1))).isEmpty();
+        servidor.verify();
+    }
+
+    @Test
+    void pideLosNombresEnBloquesDeCincuentaIds() {
+        List<UUID> ids = IntStream.rangeClosed(1, 51).mapToObj(n -> id(1000 + n)).toList();
+        String primerBloque = ids.subList(0, 50).stream().map(usuario -> "ids=" + usuario)
+                .collect(Collectors.joining("&"));
+        servidor.expect(requestTo(BASE + "/api/v1/users?" + primerBloque))
+                .andRespond(withSuccess("""
+                        [{"id": "%s", "name": "  Ana Pérez  "}, {"id": "%s", "name": " "}]
+                        """.formatted(ids.get(0), ids.get(1)), MediaType.APPLICATION_JSON));
+        servidor.expect(requestTo(BASE + "/api/v1/users?ids=" + ids.get(50)))
+                .andRespond(withSuccess("""
+                        [{"id": "%s", "name": "Luis Gómez"}]
+                        """.formatted(ids.get(50)), MediaType.APPLICATION_JSON));
+
+        Map<UUID, String> nombres = cliente.nombresDeUsuarios(ids);
+
+        assertThat(nombres).containsOnly(Map.entry(ids.get(0), "Ana Pérez"), Map.entry(ids.get(50), "Luis Gómez"));
         servidor.verify();
     }
 
