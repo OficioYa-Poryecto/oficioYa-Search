@@ -19,6 +19,8 @@ oficioya:
       oficios: /api/v1/trades
       reputaciones: /api/v1/reputation/reputaciones
       interpretacion-ia: /api/ia/interpretaciones
+      # Users (RF-10): datos públicos de varias cuentas, máximo 50 ids por consulta.
+      usuarios: /api/v1/users
   ia:
     # simulado: identifica el oficio por palabras clave, sin IA.
     # orquestador: consulta la IA (Gemini) a través del Orchestrator (sprint 4).

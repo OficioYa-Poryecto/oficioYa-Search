@@ -16,8 +16,8 @@ import edu.eci.dosw.oficioya.search.dto.TrabajadorDTO;
 /**
  * Trabajador tal como lo entrega Worker (Squad 3) en {@code GET /api/v1/workers}. Se convierte al modelo de Search
  * con {@link #aTrabajador()}.
- * PENDIENTE con otros dominios: Worker no entrega el nombre ni la foto de perfil (son de Users) ni los trabajos
- * completados (son de Service); por ahora quedan vacíos.
+ * Worker no entrega el nombre (es de Users): lo completa {@link #aTrabajador(String)} con lo que responde Users.
+ * PENDIENTE con otros dominios: la foto de perfil (Imágenes) y los trabajos completados (Service) quedan vacíos.
  */
 @JsonIgnoreProperties(ignoreUnknown = true)
 public record TrabajadorWorkerDTO(UUID id, UUID userId, String status, boolean availableNow, Set<Long> zoneIds,
@@ -35,6 +35,13 @@ public record TrabajadorWorkerDTO(UUID id, UUID userId, String status, boolean a
     }
 
     public TrabajadorDTO aTrabajador() {
+        return aTrabajador(null);
+    }
+
+    /**
+     * @param nombreCompleto nombre de la cuenta en Users, o {@code null} si Users no lo entregó
+     */
+    public TrabajadorDTO aTrabajador(String nombreCompleto) {
         OficioWorkerDTO principal = primaryTrade == null ? null : primaryTrade.trade();
         List<UUID> secundarios = secondaryTrades == null ? List.of() : secondaryTrades.stream()
                 .map(OficioDelTrabajadorDTO::trade).filter(Objects::nonNull).map(OficioWorkerDTO::id).toList();
@@ -42,7 +49,7 @@ public record TrabajadorWorkerDTO(UUID id, UUID userId, String status, boolean a
                 .filter(f -> f.dayOfWeek() != null && f.startTime() != null && f.endTime() != null)
                 .map(f -> new DisponibilidadDTO(f.dayOfWeek(), f.startTime(), f.endTime()))
                 .toList();
-        return new TrabajadorDTO(id, null, null,
+        return new TrabajadorDTO(id, nombreCompleto, null,
                 principal == null ? null : principal.id(), principal == null ? null : principal.name(),
                 secundarios, zoneIds == null ? List.of() : List.copyOf(zoneIds), null,
                 primaryTrade == null ? null : primaryTrade.approxRate(), availableNow, disponibilidad, null);
